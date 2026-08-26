@@ -1,0 +1,45 @@
+{
+  "environment": {
+    "gpu": "AMD Instinct MI355X",
+    "nodes": 2,
+    "gpus_per_node": 8,
+    "world_size": 16,
+    "rocm": "7.14",
+    "pytorch": "2.12",
+    "python": "3.14",
+    "base_image": "rocm/pytorch:rocm7.14_ubuntu26.04_py3.14_pytorch_release_2.12.0",
+    "rccl": "2.30.7-HEAD:69d542a+",
+    "rccl_commit": "69d542a2162dfbb2e4c3ad8721d443d3a282c37c",
+    "rocr_commit": "69d542a2162dfbb2e4c3ad8721d443d3a282c37c",
+    "message_bytes": 134217728
+  },
+  "continuous_gemm": {
+    "gemm": {
+      "dtype": "bfloat16",
+      "m": 8192,
+      "n": 8192,
+      "k": 8192,
+      "repeats_per_iteration": 1
+    },
+    "trials": 30,
+    "pre_gemms": 8,
+    "post_gemms": 16,
+    "allgather_repeats": 1,
+    "policy_0": {
+      "baseline_gemm_ms": 0.8411650061607361,
+      "overlapped_gemm_median_ms": 1.203016996383667,
+      "overlapped_gemm_p95_ms": 1.2603866100311278,
+      "overlapped_gemm_max_ms": 1.399420976638794,
+      "median_latency_increase_pct": 43.017955760487915,
+      "p95_latency_increase_pct": 49.83821257422635
+    },
+    "policy_2": {
+      "baseline_gemm_ms": 0.8412249982357025,
+      "overlapped_gemm_median_ms": 0.8792849779129028,
+      "overlapped_gemm_p95_ms": 0.921405017375946,
+      "overlapped_gemm_max_ms": 0.9385650157928467,
+      "median_latency_increase_pct": 4.524351957802413,
+      "p95_latency_increase_pct": 9.53134052226274
+    }
+  }
+}

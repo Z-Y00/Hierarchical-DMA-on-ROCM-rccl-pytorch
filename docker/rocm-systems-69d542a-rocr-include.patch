@@ -1,0 +1,15 @@
+diff --git a/projects/clr/rocclr/cmake/ROCclrHSA.cmake b/projects/clr/rocclr/cmake/ROCclrHSA.cmake
+index 1014070b..059110d5 100644
+--- a/projects/clr/rocclr/cmake/ROCclrHSA.cmake
++++ b/projects/clr/rocclr/cmake/ROCclrHSA.cmake
+@@ -2,6 +2,10 @@
+ #
+ # SPDX-License-Identifier: MIT
+ 
++if(ROCR_MATCHING_INCLUDE_DIR)
++  target_include_directories(rocclr BEFORE PUBLIC ${ROCR_MATCHING_INCLUDE_DIR})
++endif()
++
+ if (AMD_COMPUTE_WIN)
+   find_path(AMD_HSA_INCLUDE_DIR hsa.h
+     PATHS

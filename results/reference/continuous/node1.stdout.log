@@ -1,0 +1,23 @@
+W0827 00:45:19.153000 13 torch/distributed/run.py:862]
+W0827 00:45:19.153000 13 torch/distributed/run.py:862] *****************************************
+W0827 00:45:19.153000 13 torch/distributed/run.py:862] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed.
+W0827 00:45:19.153000 13 torch/distributed/run.py:862] *****************************************
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+[rank8]:[W827 00:45:23.230402539 ProcessGroupNCCL.cpp:5324] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+/workspace/repro/benchmarks/gemm_iteration_impact.py:90: FutureWarning: `enable_symm_mem_for_group` is deprecated. There is no need to call this function anymore.
+  symm_mem.enable_symm_mem_for_group(group.group_name)
+[rank8]:[W827 00:45:31.234629832 ProcessGroupNCCL.cpp:5324] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()
+[rank8]:[W827 00:45:37.378919054 ProcessGroupNCCL.cpp:5324] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()

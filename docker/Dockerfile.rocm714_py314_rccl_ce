@@ -1,0 +1,168 @@
+ARG BASE_IMAGE=rocm/pytorch:rocm7.14_ubuntu26.04_py3.14_pytorch_release_2.12.0
+
+FROM ${BASE_IMAGE} AS rocr-builder
+
+ARG ROCM_SYSTEMS_URL=https://github.com/ROCm/rocm-systems.git
+ARG ROCR_COMMIT=69d542a2162dfbb2e4c3ad8721d443d3a282c37c
+ARG PARALLEL_JOBS=32
+
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        g++-16 \
+        git \
+        ninja-build \
+        xxd \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install \
+        --index-url https://repo.amd.com/rocm/whl-multi-arch/ \
+        "rocm[devel]==7.14.0" \
+    && rocm-sdk init
+
+WORKDIR /src
+RUN git clone --filter=blob:none --no-checkout "${ROCM_SYSTEMS_URL}" rocm-systems \
+    && git -C rocm-systems sparse-checkout set projects/rocr-runtime \
+    && git -C rocm-systems fetch --depth 1 origin "${ROCR_COMMIT}" \
+    && git -C rocm-systems checkout --detach FETCH_HEAD \
+    && test "$(git -C rocm-systems rev-parse HEAD)" = "${ROCR_COMMIT}"
+
+RUN SDK=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_devel \
+    && export PATH="${SDK}/bin:${PATH}" \
+    && cmake \
+        -S /src/rocm-systems/projects/rocr-runtime \
+        -B /build/rocr \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/rocr-aligned \
+        -DCMAKE_C_COMPILER="${SDK}/bin/amdclang" \
+        -DCMAKE_CXX_COMPILER="${SDK}/bin/amdclang++" \
+        -DCMAKE_PREFIX_PATH="${SDK}" \
+    && cmake --build /build/rocr --parallel "${PARALLEL_JOBS}" \
+    && cmake --install /build/rocr
+
+
+FROM ${BASE_IMAGE} AS rccl-builder
+
+ARG ROCM_SYSTEMS_URL=https://github.com/ROCm/rocm-systems.git
+ARG RCCL_COMMIT=69d542a2162dfbb2e4c3ad8721d443d3a282c37c
+ARG PARALLEL_JOBS=32
+
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        g++-16 \
+        git \
+        libibverbs-dev \
+        libnuma-dev \
+        libopenmpi-dev \
+        librdmacm-dev \
+        ninja-build \
+        openmpi-bin \
+        pkg-config \
+        libstdc++-16-dev \
+        xxd \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install \
+        --index-url https://repo.amd.com/rocm/whl-multi-arch/ \
+        "rocm[devel]==7.14.0" \
+    && rocm-sdk init
+
+WORKDIR /src
+RUN git clone --filter=blob:none --no-checkout "${ROCM_SYSTEMS_URL}" rocm-systems \
+    && git -C rocm-systems sparse-checkout set \
+        projects/rccl \
+        projects/rocr-runtime \
+        projects/clr \
+        projects/hip \
+        projects/rccl-tests \
+    && git -C rocm-systems fetch --depth 1 origin "${RCCL_COMMIT}" \
+    && git -C rocm-systems checkout --detach FETCH_HEAD \
+    && test "$(git -C rocm-systems rev-parse HEAD)" = "${RCCL_COMMIT}"
+
+COPY rocm-systems-69d542a-rocr-include.patch /tmp/rocr-include.patch
+RUN git -C /src/rocm-systems apply --check /tmp/rocr-include.patch \
+    && git -C /src/rocm-systems apply /tmp/rocr-include.patch
+
+RUN SDK=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_devel \
+    && export PATH="${SDK}/bin:${PATH}" \
+    && export LD_LIBRARY_PATH="${SDK}/lib:${LD_LIBRARY_PATH}" \
+    && cmake \
+        -S /src/rocm-systems/projects/rccl \
+        -B /build/rccl \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/rccl-ce \
+        -DCMAKE_CXX_COMPILER="${SDK}/bin/amdclang++" \
+        -DCMAKE_PREFIX_PATH="${SDK}" \
+        -DROCM_PATH="${SDK}" \
+        -DROCMCORE_PATH="${SDK}" \
+        -DGPU_TARGETS=gfx950 \
+        -DENABLE_WARP_SPEED=OFF \
+    && cmake --build /build/rccl --parallel "${PARALLEL_JOBS}" \
+    && cmake --install /build/rccl
+
+RUN SDK=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_devel \
+    && export PATH="${SDK}/bin:${PATH}" \
+    && export LD_LIBRARY_PATH="/opt/rccl-ce/lib:${SDK}/lib:${LD_LIBRARY_PATH}" \
+    && cmake \
+        -S /src/rocm-systems/projects/rccl-tests \
+        -B /build/rccl-tests \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER="${SDK}/bin/hipcc" \
+        -DCMAKE_PREFIX_PATH="/opt/rccl-ce;${SDK};/usr/lib/x86_64-linux-gnu/openmpi" \
+        -DRCCL_DIR=/opt/rccl-ce/lib/cmake/rccl \
+        -DROCM_PATH="${SDK}" \
+        -DEXPLICIT_ROCM_VERSION=7.14.0 \
+        -DUSE_MPI=ON \
+        -DGPU_TARGETS=gfx950 \
+    && cmake --build /build/rccl-tests --parallel "${PARALLEL_JOBS}" \
+    && test -x /build/rccl-tests/all_gather_perf
+
+
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG ROCR_COMMIT=69d542a2162dfbb2e4c3ad8721d443d3a282c37c
+ARG RCCL_COMMIT=69d542a2162dfbb2e4c3ad8721d443d3a282c37c
+
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libibverbs-dev \
+        libnuma-dev \
+        libopenmpi-dev \
+        librdmacm-dev \
+        openmpi-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rocr-builder /opt/rocr-aligned /opt/rocr-aligned
+COPY --from=rccl-builder /opt/rccl-ce /opt/rccl-ce
+COPY --from=rccl-builder /build/rccl-tests/all_gather_perf /opt/rccl-tests/all_gather_perf
+
+RUN CORE_LIB=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/lib \
+    && RCCL_LIB=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries/lib \
+    && cp --remove-destination \
+        /opt/rocr-aligned/lib/libhsa-runtime64.so.1.21.0 \
+        "${CORE_LIB}/libhsa-runtime64.so.1" \
+    && cp --remove-destination \
+        /opt/rccl-ce/lib/librccl.so.1.0 \
+        "${RCCL_LIB}/librccl.so.1" \
+    && ln -sfn librccl.so.1 "${RCCL_LIB}/librccl.so" \
+    && printf '%s\n' \
+        "rocr_commit=${ROCR_COMMIT}" \
+        > /opt/rocr-aligned/BUILD_INFO
+
+ENV LD_PRELOAD="" \
+    LD_LIBRARY_PATH="/opt/rccl-ce/lib:/opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/lib:/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries/lib"
+
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      com.amd.rocr.base-commit="${ROCR_COMMIT}" \
+      com.amd.rccl.commit="${RCCL_COMMIT}" \
+      com.amd.rccl.integration="gemm-iteration-impact"
