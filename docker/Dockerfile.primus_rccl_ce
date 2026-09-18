@@ -1,0 +1,114 @@
+# Rebuild only RCCL (hierarchical CE) on top of a Primus image.
+#
+# Unlike Dockerfile.rocm714_py314_rccl_ce, this does not rebuild ROCr and does
+# not install a different ROCm: the base image's own ROCm SDK is used as-is, and
+# only librccl.so is replaced. The CE batch path compiles against that SDK
+# (cmake reports CE_BATCH_ASYNC_SUPPORTED enabled), so no ROCr realignment is
+# needed here.
+#
+# RCCL is pinned to the merged hierarchical CE scale-out commit rather than the
+# earlier 69d542a used by the ROCm 7.14 image. 69d542a reads the pre-27.0
+# amdsmi_fabric_info_t layout directly and does not compile against this base
+# image's flattened amdsmi header; the merged commit detects both layouts.
+ARG BASE_IMAGE=rocm/primus:v26.7-pytorch2.12-te2.17
+ARG PYTHON_VERSION=3.12
+ARG GPU_TARGETS="gfx942;gfx950"
+
+FROM ${BASE_IMAGE} AS rccl-builder
+
+ARG ROCM_SYSTEMS_URL=https://github.com/ROCm/rocm-systems.git
+ARG RCCL_COMMIT=b43491c83b588e07d99f7f20ed43ed4f0170ed1c
+ARG PARALLEL_JOBS=32
+ARG PYTHON_VERSION
+ARG GPU_TARGETS
+
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git \
+        libibverbs-dev \
+        libnuma-dev \
+        librdmacm-dev \
+        ninja-build \
+        pkg-config \
+        xxd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --filter=blob:none --no-checkout "${ROCM_SYSTEMS_URL}" rocm-systems \
+    && git -C rocm-systems sparse-checkout set \
+        projects/rccl \
+        projects/rccl-tests \
+    && git -C rocm-systems fetch --depth 1 origin "${RCCL_COMMIT}" \
+    && git -C rocm-systems checkout --detach FETCH_HEAD \
+    && test "$(git -C rocm-systems rev-parse HEAD)" = "${RCCL_COMMIT}"
+
+RUN SDK=/opt/venv/lib/python${PYTHON_VERSION}/site-packages/_rocm_sdk_devel \
+    && export PATH="${SDK}/bin:${PATH}" \
+    && cmake \
+        -S /src/rocm-systems/projects/rccl \
+        -B /build/rccl \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/rccl-ce \
+        -DCMAKE_CXX_COMPILER="${SDK}/bin/amdclang++" \
+        -DCMAKE_PREFIX_PATH="${SDK}" \
+        -DROCM_PATH="${SDK}" \
+        -DROCMCORE_PATH="${SDK}" \
+        -DGPU_TARGETS="${GPU_TARGETS}" \
+        -DENABLE_WARP_SPEED=OFF \
+    && cmake --build /build/rccl --parallel "${PARALLEL_JOBS}" \
+    && cmake --install /build/rccl
+
+RUN SDK=/opt/venv/lib/python${PYTHON_VERSION}/site-packages/_rocm_sdk_devel \
+    && export PATH="${SDK}/bin:${PATH}" \
+    && export LD_LIBRARY_PATH="/opt/rccl-ce/lib:${SDK}/lib:${LD_LIBRARY_PATH}" \
+    && cmake \
+        -S /src/rocm-systems/projects/rccl-tests \
+        -B /build/rccl-tests \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER="${SDK}/bin/hipcc" \
+        -DCMAKE_PREFIX_PATH="/opt/rccl-ce;${SDK};/opt/openmpi" \
+        -DRCCL_DIR=/opt/rccl-ce/lib/cmake/rccl \
+        -DROCM_PATH="${SDK}" \
+        -DUSE_MPI=ON \
+        -DGPU_TARGETS="${GPU_TARGETS}" \
+    && cmake --build /build/rccl-tests --parallel "${PARALLEL_JOBS}" \
+    && test -x /build/rccl-tests/all_gather_perf
+
+
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG RCCL_COMMIT=b43491c83b588e07d99f7f20ed43ed4f0170ed1c
+ARG PYTHON_VERSION
+ARG GPU_TARGETS
+
+USER root
+COPY --from=rccl-builder /opt/rccl-ce /opt/rccl-ce
+COPY --from=rccl-builder /build/rccl-tests/all_gather_perf /opt/rccl-tests/all_gather_perf
+
+# The base image ships two independent librccl copies: torch resolves the one
+# under the rocm-sdk-libraries wheel, while anything using ROCM_PATH/
+# LD_LIBRARY_PATH (rccl-tests, plain HIP programs) picks up the rocm-sdk-devel
+# one first. Both are replaced, otherwise part of the image silently keeps
+# running stock RCCL. --remove-destination because the devel copy is a hardlink
+# pair, which cp would otherwise write through.
+RUN SITE=/opt/venv/lib/python${PYTHON_VERSION}/site-packages \
+    && for LIB_DIR in "${SITE}/_rocm_sdk_libraries/lib" "${SITE}/_rocm_sdk_devel/lib"; do \
+        [ -e "${LIB_DIR}/librccl.so.1" ] || continue; \
+        for SONAME in librccl.so.1 librccl.so.1.0; do \
+            [ -e "${LIB_DIR}/${SONAME}" ] || continue; \
+            cp --remove-destination \
+                /opt/rccl-ce/lib/librccl.so.1.0 "${LIB_DIR}/${SONAME}"; \
+        done; \
+        ln -sfn librccl.so.1 "${LIB_DIR}/librccl.so"; \
+        cmp -s /opt/rccl-ce/lib/librccl.so.1.0 "${LIB_DIR}/librccl.so.1" \
+            || { echo "stale RCCL left at ${LIB_DIR}" >&2; exit 1; }; \
+    done
+
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      com.amd.rccl.commit="${RCCL_COMMIT}" \
+      com.amd.rccl.gpu-targets="${GPU_TARGETS}" \
+      com.amd.rccl.integration="gemm-iteration-impact"
