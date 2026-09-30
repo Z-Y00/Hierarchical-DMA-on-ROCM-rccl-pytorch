@@ -39,9 +39,13 @@ mkdir -p "${RESULTS_DIR}"
 
 docker image inspect "${IMAGE}" >/dev/null
 docker rm --force "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+# nofile must be raised: RCCL opens a UDS per peer per channel, and rank init
+# dies with "ncclOsSocketTryAccept: Accept failed: Too many open files" at the
+# default 1024.
 docker run --detach --rm \
     --name "${CONTAINER_NAME}" \
     --network=host \
+    --uts=host \
     --ipc=host \
     --device=/dev/kfd \
     --device=/dev/dri \
@@ -49,6 +53,7 @@ docker run --detach --rm \
     --cap-add SYS_PTRACE \
     --cap-add IPC_LOCK \
     --ulimit memlock=-1:-1 \
+    --ulimit nofile=1048576:1048576 \
     --security-opt seccomp=unconfined \
     --volume "${REPO_ROOT}:/workspace/repro:ro" \
     --volume "${RESULTS_DIR}:/results" \
@@ -99,7 +104,12 @@ run_arm() {
         "--warmup=${WARMUP}" \
         "--iterations=${ITERATIONS}" \
         --policies "${policy_args[@]}" \
-        >"${log_file}" 2>&1
+        >"${log_file}" 2>&1 || {
+            echo "  FAILED (exit $?), see ${log_file}"
+            grep -E 'Error|error:|Traceback|Last error' "${log_file}" | tail -5
+            failures=$((failures + 1))
+            return 0
+        }
 
     # The CE path logs its dispatch decision; without this the two arms can
     # silently run the same symmetric kernel and report a null result.
@@ -111,7 +121,9 @@ run_arm() {
     grep -E '^RESULT ' "${log_file}" || true
 }
 
+failures=0
 run_arm sdma_off 0 0
 run_arm sdma_on 1 1
 
 echo "Results: ${RESULTS_DIR}"
+exit $(( failures > 0 ))
