@@ -1,0 +1,86 @@
+{
+  "base_image": "unifiedtrainingdockers.azurecr.io/utd/nightly:primus_rocm10.2_20260929",
+  "ce_path_taken": {
+    "sdma_off": false,
+    "sdma_on": true
+  },
+  "config": {
+    "arms": {
+      "sdma_off": {
+        "RCCL_CE_REDUCESCATTER": "0",
+        "RCCL_FORCE_CE_REDUCESCATTER": "0"
+      },
+      "sdma_on": {
+        "RCCL_CE_REDUCESCATTER": "1",
+        "RCCL_FORCE_CE_REDUCESCATTER": "1"
+      }
+    },
+    "collective": "reducescatter",
+    "common_env": {
+      "RCCL_DDA_ENABLE": "0",
+      "RCCL_MSCCL_ENABLE": "0"
+    },
+    "cta_policy": 0,
+    "dtype": "bfloat16",
+    "gemm": "8192x8192x8192 bf16",
+    "iterations": 30,
+    "message_bytes": 134217728,
+    "warmup": 20
+  },
+  "date": "2026-09-30",
+  "deltas": {
+    "baseline_drift_between_arms_pct": 0.038731754347737284,
+    "collective_window_cost_pct": 10.525724618868134,
+    "max_interference_reduction_pct": 79.21437630897627,
+    "median_interference_reduction_pct": 96.70759348582793,
+    "p95_interference_reduction_pct": 86.15896258037954
+  },
+  "description": "RCCL CE (SDMA copy-engine) reduce-scatter vs kernel reduce-scatter, measured as GEMM interference while the collective overlaps a continuous GEMM loop.",
+  "hardware": "1 node, 8x AMD Instinct MI355X (gfx950)",
+  "image": "lorrisync/therock-main:ce-rs-primus-rocm10.2-f214805",
+  "rccl_branch": "users/galaband/CE_reduce_scatter",
+  "rccl_commit": "f214805997b44f8fe589de54b4ff3890c9c8cd4a",
+  "results": {
+    "sdma_off": {
+      "aliases": [],
+      "baseline_gemm_ms": 1.1877299547195435,
+      "ce_dispatch_lines": 0,
+      "collective": "reducescatter",
+      "collective_window_ms": 20.368727684020996,
+      "k": 8192,
+      "m": 8192,
+      "max_latency_increase_pct": 83.46755289684717,
+      "median_latency_increase_pct": 37.217512373535904,
+      "n": 8192,
+      "overlapped_gemm_max_ms": 2.1790990829467773,
+      "overlapped_gemm_median_ms": 1.629773497581482,
+      "overlapped_gemm_p95_ms": 1.9352800130844114,
+      "overlapped_samples": 60,
+      "p95_latency_increase_pct": 62.939395895036235,
+      "policy": 0,
+      "post_gemm_ms": 1.1873499751091003,
+      "shape_id": 0
+    },
+    "sdma_on": {
+      "aliases": [],
+      "baseline_gemm_ms": 1.18818998336792,
+      "ce_dispatch_lines": 400,
+      "collective": "reducescatter",
+      "collective_window_ms": 22.512683868408203,
+      "k": 8192,
+      "m": 8192,
+      "max_latency_increase_pct": 17.34925144924483,
+      "median_latency_increase_pct": 1.2253518017990903,
+      "n": 8192,
+      "overlapped_gemm_max_ms": 1.3943320512771606,
+      "overlapped_gemm_median_ms": 1.202749490737915,
+      "overlapped_gemm_p95_ms": 1.2916987419128418,
+      "overlapped_samples": 60,
+      "p95_latency_increase_pct": 8.711465337515028,
+      "policy": 0,
+      "post_gemm_ms": 1.1880500316619873,
+      "shape_id": 0
+    }
+  },
+  "slurm_job": 32216
+}
