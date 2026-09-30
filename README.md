@@ -109,6 +109,38 @@ Useful overrides include `MESSAGE_BYTES`, `GEMM_M`, `GEMM_N`, `GEMM_K`,
 New logs are written under `results/runs/`. The checked-in reference logs and
 machine-readable metrics are under `results/reference/`.
 
+## Primus-Turbo model shape scan
+
+The benchmark can scan the MI355X BF16 training shapes introduced by
+[Primus-Turbo PR #265](https://github.com/AMD-AGI/Primus-Turbo/pull/265).
+It covers attention QKV/output, MLP gate-up/down, and LM-head projections.
+The sequence length is multiplied by each model's MI355X micro-batch sizes.
+Identical `(M, N, K)` shapes are measured once while all model/projection
+aliases remain in the result.
+
+```bash
+HOST_A=lorrirao@<first-node> \
+HOST_B=lorrirao@<second-node> \
+SHAPE_SCAN=primus-mi355x-bf16 \
+TIMEOUT_SECONDS=7200 \
+./scripts/run_2node_overlap.sh
+```
+
+The full scan contains 160 model/projection/batch aliases and 127 unique
+shapes. `SHAPE_START` and `SHAPE_COUNT` can run a contiguous subset for a
+smoke test or resumable chunks. Scan runs generate:
+
+- `report/overlap_report.json` with complete structured results.
+- `report/overlap_report.csv` with one row per unique shape.
+- `node0.stdout.log` and `node1.stdout.log` with raw benchmark output.
+
+The report compares policy 0 with hierarchical CE policy 2. Its primary
+benefit metric is the reduction in GEMM slowdown during overlap:
+
+```text
+100 × (policy-0 slowdown − policy-2 slowdown) / policy-0 slowdown
+```
+
 ## Interpretation
 
 Policy 2 uses a hierarchical path:

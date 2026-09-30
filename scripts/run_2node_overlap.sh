@@ -9,24 +9,32 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${IMAGE:-rocm714-py314-rocr-rccl-ce:latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-gemm-ag-overlap-${USER}}"
 MASTER_PORT="${MASTER_PORT:-29541}"
+MASTER_ADDR="${MASTER_ADDR:-${HOST_A#*@}}"
 MESSAGE_BYTES="${MESSAGE_BYTES:-134217728}"
 GEMM_M="${GEMM_M:-8192}"
 GEMM_N="${GEMM_N:-8192}"
 GEMM_K="${GEMM_K:-8192}"
+SHAPE_SCAN="${SHAPE_SCAN:-single}"
+SHAPE_START="${SHAPE_START:-0}"
+SHAPE_COUNT="${SHAPE_COUNT:-0}"
 POLICIES="${POLICIES:-0 2}"
 RCCL_DEBUG_MARKERS="${RCCL_DEBUG_MARKERS:-0}"
 BENCHMARK_SCRIPT=/workspace/repro/benchmarks/gemm_iteration_impact.py
 GEMM_REPEATS="${GEMM_REPEATS:-1}"
 WARMUP="${WARMUP:-20}"
 ITERATIONS="${ITERATIONS:-30}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-600}"
 extra_args=(
     "--pre-gemms=${PRE_GEMMS:-8}"
     "--post-gemms=${POST_GEMMS:-16}"
-    "--allgather-repeats=${ALLGATHER_REPEATS:-1}"
+    "--collective-repeats=${COLLECTIVE_REPEATS:-1}"
+    "--collective=${COLLECTIVE:-allgather}"
 )
 
 RUN_NAME="${RUN_NAME:-continuous_$(date +%Y%m%d_%H%M%S)}"
 RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/results/runs/${RUN_NAME}}"
+REMOTE_REPO_ROOT="${REMOTE_REPO_ROOT:-${REPO_ROOT}}"
+REMOTE_RESULTS_DIR="${REMOTE_RESULTS_DIR:-${RESULTS_DIR}}"
 SSH_OPTIONS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
 if [[ "${RCCL_DEBUG_MARKERS}" == "1" ]]; then
@@ -77,7 +85,7 @@ start_container() {
     ssh "${SSH_OPTIONS[@]}" "${host}" bash -s -- \
         "${IMAGE}" \
         "${CONTAINER_NAME}" \
-        "${REPO_ROOT}" \
+        "${REMOTE_REPO_ROOT}" \
         "${node_results}" <<'REMOTE'
 set -euo pipefail
 
@@ -98,6 +106,7 @@ ibverbs_lib="$(
 )"
 test -f "${ionic_lib}"
 test -f "${ibverbs_lib}"
+mkdir -p "${node_results}"
 
 docker rm --force "${container_name}" >/dev/null 2>&1 || true
 docker run --detach --rm \
@@ -137,8 +146,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-start_container "${HOST_A}" "${RESULTS_DIR}/node0"
-start_container "${HOST_B}" "${RESULTS_DIR}/node1"
+start_container "${HOST_A}" "${REMOTE_RESULTS_DIR}/node0"
+start_container "${HOST_B}" "${REMOTE_RESULTS_DIR}/node1"
 
 read -r -a policy_args <<< "${POLICIES}"
 run_node() {
@@ -159,18 +168,21 @@ run_node() {
         --env "NCCL_DEBUG_SUBSYS=${NCCL_DEBUG_SUBSYSTEMS}"
         --env RCCL_MSCCL_ENABLE=0
         "${CONTAINER_NAME}"
-        timeout --signal=TERM 600s
+        timeout --signal=TERM "${TIMEOUT_SECONDS}s"
         torchrun
         --nnodes=2
         --nproc_per_node=8
         "--node_rank=${node_rank}"
-        "--master_addr=${HOST_A}"
+        "--master_addr=${MASTER_ADDR}"
         "--master_port=${MASTER_PORT}"
         "${BENCHMARK_SCRIPT}"
         "--message-bytes=${MESSAGE_BYTES}"
         "--gemm-m=${GEMM_M}"
         "--gemm-n=${GEMM_N}"
         "--gemm-k=${GEMM_K}"
+        "--shape-scan=${SHAPE_SCAN}"
+        "--shape-start=${SHAPE_START}"
+        "--shape-count=${SHAPE_COUNT}"
         "--gemm-repeats=${GEMM_REPEATS}"
         "--warmup=${WARMUP}"
         "--iterations=${ITERATIONS}"
@@ -196,5 +208,11 @@ if (( status != 0 )); then
     exit "${status}"
 fi
 
-awk '/^RESULT |^SUMMARY / { print }' "${RESULTS_DIR}/node0.stdout.log"
+if [[ "${SHAPE_SCAN}" == "single" ]]; then
+    awk '/^RESULT |^SUMMARY / { print }' "${RESULTS_DIR}/node0.stdout.log"
+else
+    python3 "${REPO_ROOT}/scripts/generate_overlap_report.py" \
+        "${RESULTS_DIR}/node0.stdout.log" \
+        --output-dir "${RESULTS_DIR}/report"
+fi
 echo "Results: ${RESULTS_DIR}"
