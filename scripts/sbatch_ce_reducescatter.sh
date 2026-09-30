@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=ce-rs-sdma
-#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.out
+#
+# Deliberately no --nodes/-N. Under `-A emad` any form of it (-N1, --nodes=1,
+# even alongside --exclusive) is rejected with the misleading "Invalid account
+# or account/partition combination specified"; -N2 and a bare --exclusive are
+# both accepted. --exclusive with one task already lands a single whole node.
 #
 # Fetch the CE reduce-scatter RCCL image onto the allocated node and run the
 # SDMA on/off overlap A/B against it.
