@@ -16,7 +16,17 @@
 #   sbatch -A yaof -p Compute-Interactive scripts/sbatch_ce_reducescatter.sh
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Slurm copies the batch script to /var/spool/slurmd/job<id>/slurm_script, so
+# BASH_SOURCE does not point into the repo here the way it does for a plain
+# shell invocation. Prefer the submit directory, and fail loudly rather than
+# burning the allocation on a path that has no benchmark in it.
+REPO_ROOT="${REPO_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+RUNNER="${REPO_ROOT}/scripts/run_1node_ce_reducescatter.sh"
+if [[ ! -x "${RUNNER}" ]]; then
+    echo "REPO_ROOT=${REPO_ROOT} has no executable ${RUNNER}" >&2
+    echo "Submit from the repo root, or pass REPO_ROOT=/path/to/repo." >&2
+    exit 1
+fi
 
 BASE_IMAGE="${BASE_IMAGE:-unifiedtrainingdockers.azurecr.io/utd/nightly:primus_rocm10.2_20260929}"
 RCCL_COMMIT="${RCCL_COMMIT:-f214805997b44f8fe589de54b4ff3890c9c8cd4a}"
@@ -47,4 +57,4 @@ else
         "${REPO_ROOT}/docker"
 fi
 
-IMAGE="${IMAGE}" exec "${REPO_ROOT}/scripts/run_1node_ce_reducescatter.sh"
+IMAGE="${IMAGE}" exec "${RUNNER}"
